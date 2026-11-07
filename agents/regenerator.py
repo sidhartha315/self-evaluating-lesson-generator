@@ -13,27 +13,31 @@ def regenerate_lesson(topic, lesson, feedback):
 
     Topic: {topic}
 
-    Original Lesson:
+    Previous Lesson:
     {lesson}
 
     Evaluator Feedback:
     {feedback}
 
-    Instructions:
-    1. Correct all identified mistakes.
-    2. Explain concepts accurately.
-    3. Include an introduction.
-    4. Provide clear examples.
-    5. Include a conclusion.
-    6. Make the lesson beginner-friendly.
+    Your task:
+    Regenerate the complete lesson and fix EVERY issue
+    mentioned in the evaluator feedback.
+
+    Requirements:
+    1. Explain the topic accurately.
+    2. Include a clear introduction.
+    3. Explain why the topic is useful.
+    4. Explain how the concept works step by step.
+    5. Explain technical terms in beginner-friendly language.
+    6. Include a practical real-world example.
+    7. Include all important concepts.
+    8. End with a conclusion or summary.
 
     Important:
-    RAG means Retrieval-Augmented Generation.
-    It retrieves relevant information from external
-    sources and uses that information to generate
-    accurate responses.
-
-    Generate the improved lesson.
+    - Do not ignore any evaluator feedback.
+    - Do not simply repeat the previous lesson.
+    - Do not include unsupported information.
+    - Return the complete improved lesson.
     """
 
     response = llm.invoke(prompt)

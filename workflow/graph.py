@@ -9,9 +9,15 @@ from agents.generator import generate_lesson
 from agents.evaluator import evaluate_lesson
 from agents.regenerator import regenerate_lesson
 
+from memory.database import (
+    save_run,
+    get_learning_notes,
+    save_rejection
+)
+
 
 # ==========================================
-# STEP 1: DEFINE WORKFLOW STATE
+# WORKFLOW STATE
 # ==========================================
 
 class LessonState(TypedDict):
@@ -24,12 +30,17 @@ class LessonState(TypedDict):
 
 
 # ==========================================
-# STEP 2: GENERATOR NODE
+# GENERATOR
 # ==========================================
 
 def generate_node(state: LessonState):
 
-    lesson = generate_lesson(state["topic"])
+    learning_notes = get_learning_notes(state["topic"])
+
+    lesson = generate_lesson(
+        state["topic"],
+        learning_notes
+    )
 
     return {
         "lesson": lesson,
@@ -38,12 +49,22 @@ def generate_node(state: LessonState):
 
 
 # ==========================================
-# STEP 3: EVALUATOR NODE
+# EVALUATOR
 # ==========================================
 
 def evaluate_node(state: LessonState):
 
     evaluation = evaluate_lesson(state["lesson"])
+
+    if not evaluation["passed"]:
+
+        save_rejection(
+            state["topic"],
+            state["lesson"],
+            evaluation["score"],
+            evaluation["feedback"],
+            state["attempts"] + 1
+        )
 
     return {
         "score": evaluation["score"],
@@ -53,7 +74,7 @@ def evaluate_node(state: LessonState):
 
 
 # ==========================================
-# STEP 4: CONDITIONAL ROUTING
+# CONDITIONAL ROUTING
 # ==========================================
 
 def decide_next_step(state: LessonState):
@@ -61,14 +82,15 @@ def decide_next_step(state: LessonState):
     if state["passed"]:
         return "end"
 
-    if state["attempts"] >= 3:
+    # Maximum 2 regeneration retries
+    if state["attempts"] >= 2:
         return "end"
 
     return "regenerate"
 
 
 # ==========================================
-# STEP 5: REGENERATOR NODE
+# REGENERATOR
 # ==========================================
 
 def regenerate_node(state: LessonState):
@@ -86,27 +108,18 @@ def regenerate_node(state: LessonState):
 
 
 # ==========================================
-# STEP 6: BUILD LANGGRAPH WORKFLOW
+# BUILD LANGGRAPH
 # ==========================================
 
 workflow = StateGraph(LessonState)
-
-
-# Register nodes
 
 workflow.add_node("generator", generate_node)
 workflow.add_node("evaluator", evaluate_node)
 workflow.add_node("regenerator", regenerate_node)
 
-
-# Connect nodes
-
 workflow.add_edge(START, "generator")
 
 workflow.add_edge("generator", "evaluator")
-
-
-# Conditional routing
 
 workflow.add_conditional_edges(
     "evaluator",
@@ -119,69 +132,58 @@ workflow.add_conditional_edges(
 
 workflow.add_edge("regenerator", "evaluator")
 
-
-# ==========================================
-# STEP 7: COMPILE WORKFLOW
-# ==========================================
-
 app = workflow.compile()
 
 
 # ==========================================
-# STEP 8: SAVE GENERATED LESSON
+# SAVE FINAL LESSON
 # ==========================================
 
 def save_lesson(result, topic):
 
-    # Get project root directory
     project_dir = os.path.dirname(
         os.path.dirname(os.path.abspath(__file__))
     )
 
-    # Create outputs folder
     output_dir = os.path.join(project_dir, "outputs")
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # Clean topic for filename
     safe_topic = re.sub(
         r"[^a-zA-Z0-9_-]",
         "_",
         topic
     )
 
-    timestamp = datetime.now().strftime(
-        "%Y%m%d_%H%M%S"
-    )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     filename = f"{safe_topic}_{timestamp}.txt"
 
     filepath = os.path.join(output_dir, filename)
 
-    # Write lesson and evaluation
     with open(filepath, "w", encoding="utf-8") as file:
 
-        file.write("GENERATED LESSON\n")
+        file.write("FINAL GENERATED LESSON\n")
         file.write("=" * 50 + "\n\n")
 
         file.write(result["lesson"])
 
         file.write("\n\nFINAL EVALUATION\n")
-        file.write("=" * 50 + "\n\n")
+        file.write("=" * 50 + "\n")
 
         file.write(f"Topic: {topic}\n")
         file.write(f"Score: {result['score']}\n")
         file.write(f"Passed: {result['passed']}\n")
-        file.write(f"Attempts: {result['attempts']}\n")
+        file.write(f"Retries: {result['attempts']}\n")
         file.write(f"Feedback: {result['feedback']}\n")
 
-    print(f"\nLesson saved successfully: {filepath}")
+    print(f"\nLesson saved: {filepath}")
 
     return filepath
 
 
 # ==========================================
-# STEP 9: EXECUTE WORKFLOW
+# EXECUTE WORKFLOW
 # ==========================================
 
 def run_lesson_workflow(topic):
@@ -195,17 +197,24 @@ def run_lesson_workflow(topic):
         "passed": False
     }
 
-    # Execute LangGraph
     result = app.invoke(initial_state)
 
-    # Save generated lesson
+    # Save final run in persistent memory
+    save_run(
+        result["topic"],
+        result["score"],
+        result["passed"],
+        result["attempts"],
+        result["feedback"]
+    )
+
     save_lesson(result, topic)
 
     return result
 
 
 # ==========================================
-# STEP 10: MAIN EXECUTION
+# MAIN
 # ==========================================
 
 if __name__ == "__main__":
@@ -214,14 +223,10 @@ if __name__ == "__main__":
 
     result = run_lesson_workflow(topic)
 
-    print("\n========== FINAL LESSON ==========\n")
-
-    print(result["lesson"])
-
     print("\n========== FINAL EVALUATION ==========\n")
 
     print("Topic:", result["topic"])
     print("Score:", result["score"])
     print("Passed:", result["passed"])
-    print("Attempts:", result["attempts"])
+    print("Retries:", result["attempts"])
     print("Feedback:", result["feedback"])
